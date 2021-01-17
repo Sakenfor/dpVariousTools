@@ -15,7 +15,8 @@ import bpy,sys,bmesh
 import numpy as np
 from bpy import utils as butils
 from bpy.app import handlers
-
+from contextlib import contextmanager 
+from collections import OrderedDict
 base_dir = osp.dirname(osp.realpath(__file__))
 if not base_dir in sys.path:sys.path.append(base_dir)
 from general_tools import *
@@ -27,6 +28,7 @@ from bpy.types import (
     PropertyGroup,
     
     )
+
 from bpy.props import (
     StringProperty,
     BoolProperty,
@@ -60,12 +62,8 @@ def specials_draw(self,context):
     if ob.type=="MESH":
         row.operator('dp16var.safely_remove_doubles')
 
-from collections import OrderedDict
-class GroupsFile(Operator):
 
-    bl_idname = "dp16ops.groups_file_base"
-    bl_label = 'None'
-    save_name = StringProperty()
+class GroupsFile(Operator):
 
     @classmethod
     def poll(self,context):
@@ -83,7 +81,10 @@ class GroupsFile(Operator):
         ob=context.active_object
         obj=ob.dp_helper
         path = self.filepath
-
+        if not path.endswith('.txt'):
+            self.report({"WARNING"},"Path %s was not a .txt file, did not save!"%self.filepath)
+            return {"FINISHED"}
+        
         mode=ob.mode
         if mode !='OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
@@ -178,13 +179,11 @@ class TagVertsPrintIndices(GroupsManagement):
     bl_idname = "dp16ops.group_print_indices"
     action="INDICES"
     
-    
 class TagVertsAdd(GroupsManagement):
     '''Add selected vertices to object's active group'''
     bl_label = "Assign"
     bl_idname = "dp16ops.add_to_group"
     action="ADD"
-
 
 class TagVertsSet(GroupsManagement):
     '''Set ONLY selected vertices to be part of the active group'''
@@ -320,14 +319,13 @@ class VertexGroup(PropertyGroup):
     
     @property
     def vertices(self):
-
+        
         mesh=self.id_data.data
         bm,my_id = self.id_data.dp_helper.bmesh_layer(self.name)
         b_ids=[v.index for v in bm.verts if v[my_id]>0]
         mesh_verts = mesh.vertices
         
         return [ mesh_verts[i] for i in b_ids ]
-
 
 class dpDrawVertexGroupUI(UIList):
     
@@ -351,21 +349,26 @@ class DpObjectHelper(PropertyGroup):
     groups_weight = FloatProperty(min=0,max=1,default=1,name='Weight',precision=4)
     do_draw_groups = BoolProperty(default=True)
     
-    groups_custom_save_path = StringProperty()
-    groups_file_save = StringProperty(subtype='FILE_PATH')
-    groups_file_load = StringProperty(subtype='FILE_PATH')
+    @contextmanager
+    def bm(self,to_mesh=False):
+        mode=self.id_data.mode
+        try:
+            
+            bpy.ops.object.mode_set(mode='OBJECT')
+            bm = bmesh.new()
+            bm.from_mesh(self.id_data.data)
 
+            yield bm
+        finally:
+            if to_mesh:
+                bm.to_mesh(self.id_data.data)
+            bpy.ops.object.mode_set(mode=mode)
     
     def on_groups_remove(self,index):
-        mode=self.id_data.mode
-        if mode !='OBJECT':
-            bpy.ops.object.mode_set(mode='OBJECT')
-        group=self.groups[index]
-        bm,my_id = self.bmesh_layer(group.name)
-        bm.verts.layers.float.remove(my_id)
-        #Update after remove
-        bm.to_mesh(self.id_data.data)
-        bpy.ops.object.mode_set(mode=mode)
+        with self.bm(1) as bm:
+            my_id = bm.verts.layers.float.get(self.groups[index].name)
+            if my_id:bm.verts.layers.float.remove(my_id)
+
 
     @property
     def active_group(self):
@@ -404,7 +407,6 @@ class DpObjectHelper(PropertyGroup):
             sub.operator('dp16ops.deselect_group')
             lay0=row
         
-    
     def bmesh_layer(self,group_name=None):
         
         if not group_name:
@@ -445,8 +447,7 @@ class DpObjectHelper(PropertyGroup):
             operator.report({"INFO"},"Indices of %s's group \"%s\":"%(self.id_data.name,self.active_group.name))
             operator.report({"INFO"},str(self.active_group.indices))
                 
-               
-        
+
         elif action in {"SELECT","DESELECT"}:
             self.select_group(bm,my_id,action == "SELECT")
 
