@@ -83,7 +83,10 @@ class GroupsFile(Operator):
         ob=context.active_object
         obj=ob.dp_helper
         path = self.filepath
-        
+
+        mode=ob.mode
+        if mode !='OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
         if self.action == 'SAVE':
 
             indices_save = '\n'.join('%s:%s'%(g.name,g.indices) for g in obj.groups)
@@ -98,13 +101,8 @@ class GroupsFile(Operator):
 
             with open(path,'r') as file:
                 raw = file.read()
-                mode = ob.mode
-                if mode == 'EDIT':
-                    bm = bmesh.from_edit_mesh(ob.data)
-                else:
-                    bm = bmesh.new()
-                    bm.from_mesh(ob.data)
-                
+                bm = bmesh.new()
+                bm.from_mesh(ob.data)
                 for line in raw.split('\n'):
                     line=line.strip(' ')
                     if ':' not in line or line.startswith('//'):continue
@@ -124,10 +122,10 @@ class GroupsFile(Operator):
                         v[my_id] = 1 if v.index in indices else 0
 
                     group.update_length(bm,my_id)
-                    
-                bpy.ops.object.mode_set(mode='OBJECT')
+
                 bm.to_mesh(ob.data)
-                bpy.ops.object.mode_set(mode=mode)
+                
+        bpy.ops.object.mode_set(mode=mode)
 
 
         return {"FINISHED"}
@@ -330,6 +328,7 @@ class VertexGroup(PropertyGroup):
         
         return [ mesh_verts[i] for i in b_ids ]
 
+
 class dpDrawVertexGroupUI(UIList):
     
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
@@ -357,6 +356,17 @@ class DpObjectHelper(PropertyGroup):
     groups_file_load = StringProperty(subtype='FILE_PATH')
 
     
+    def on_groups_remove(self,index):
+        mode=self.id_data.mode
+        if mode !='OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        group=self.groups[index]
+        bm,my_id = self.bmesh_layer(group.name)
+        bm.verts.layers.float.remove(my_id)
+        #Update after remove
+        bm.to_mesh(self.id_data.data)
+        bpy.ops.object.mode_set(mode=mode)
+
     @property
     def active_group(self):
         return self.groups[self.groups_index] if self.groups_index <= len(self.groups)-1 else None
@@ -372,7 +382,11 @@ class DpObjectHelper(PropertyGroup):
         
         row.template_list("dpDrawVertexGroupUI", "", self, "groups", self, "groups_index", rows=4)
         col=row.column(align=True)
-        template_list_control(row,4,group='objects["%s"].dp_helper'%self.id_data.name,member='groups',col=col)
+        template_list_control(row,4,
+            group='objects["%s"].dp_helper'%self.id_data.name,
+            member='groups',
+            col=col)
+            
         col.menu('dp16ops.groups_menu',icon='DOWNARROW_HLT',text='')
         lay0=layout
         if ob.mode=='EDIT' and self.groups:
@@ -390,7 +404,7 @@ class DpObjectHelper(PropertyGroup):
             sub.operator('dp16ops.deselect_group')
             lay0=row
         
-
+    
     def bmesh_layer(self,group_name=None):
         
         if not group_name:

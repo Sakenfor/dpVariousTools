@@ -56,7 +56,11 @@ class generic_list_adder(Operator):
         
         elif self.action=='REMOVE':
             for i,g in enumerate(collection):
+            
                 if i==sel_id:
+                    remstr='on_%s_remove'%self.member
+                    if hasattr(group,remstr):
+                        getattr(group,remstr)(i)
                     collection.remove(i)
         
         elif self.action=='UP':
