@@ -38,7 +38,18 @@ from bpy.props import (
     FloatVectorProperty,
     )
 
+class GroupsMenu(bpy.types.Menu):
+    bl_idname = "dp16ops.groups_menu"
+    bl_label = "Select"
 
+    def draw(self, context):
+        layout = self.layout
+        layout.operator('dp16ops.groups_file_save',text='',icon='SAVE_AS').batch = True
+        layout.operator('dp16ops.groups_file_load',text='',icon='LOAD_FACTORY').batch = True
+        layout.operator('dp16ops.group_print_indices',text='',icon='STICKY_UVS_DISABLE')
+        # layout.operator("object.select_all", text="Select/Deselect All").action = 'TOGGLE'
+        # layout.operator("object.select_all", text="Inverse").action = 'INVERT'
+        # layout.operator("object.select_random", text="Random")
 def specials_draw(self,context):
     row=self.layout.row()
     C=bpy.context
@@ -47,54 +58,111 @@ def specials_draw(self,context):
     if ob.type=="MESH":
         row.operator('dp16var.safely_remove_doubles')
 
-
+from collections import OrderedDict
 class GroupsFile(Operator):
+
     bl_idname = "dp16ops.groups_file_base"
     bl_label = 'None'
+    save_name = StringProperty()
+
+    @classmethod
+    def poll(self,context):
+        return len(context.active_object.dp_helper.groups)
+        
     def invoke(self,context,event):
         self.event=event
-        return self.execute(context)
+        if self.batch:
+            context.window_manager.fileselect_add(self)
+            return {'RUNNING_MODAL'}
+            #return context.window_manager.invoke_props_dialog(self)
+        return {"FINISHED"}
+        #return self.execute(context)
     
     def execute(self,context):
     
-        import json
         ob=context.active_object
         obj=ob.dp_helper
-        active_group = obj.active_group
-        if not active_group:return {"FINISHED"}
-        
-        path = '%s/%s.json'%(osp.dirname(bpy.data.filepath),active_group.name)
+        path = self.filepath
         
         if self.action == 'SAVE':
-            with open(path,'w') as file:
-                json.dump(active_group.indices,file, indent=1, sort_keys=True)
-            print("Saved %s indices to %s"%(active_group.name,path))
-            
-        elif self.action == 'LOAD':
-            with open(path,'r') as file:
-                indices=json.load(file)
-                bm,my_id=obj.bmesh_layer()
-                for v in bm.verts:
-                    v[my_id] = 1 if v.index in indices else 0
-                active_group.update_length(bm,my_id)
+
+            indices_save = '\n'.join('%s:%s'%(g.name,g.indices) for g in obj.groups)
+
+            if osp.exists(osp.dirname(path)):
+                with open(path,'w') as file:
+                    file.write(str(indices_save))
                 
-                if self.event.ctrl:
-                    obj.select_group(bm,my_id)
+
+        elif self.action == 'LOAD':
+            from ast import literal_eval
+
+            with open(path,'r') as file:
+                raw = file.read()
+                mode = ob.mode
+                if mode == 'EDIT':
+                    bm = bmesh.from_edit_mesh(ob.data)
+                else:
+                    bm = bmesh.new()
+                    bm.from_mesh(ob.data)
+                
+                for line in raw.split('\n'):
+                    line=line.strip(' ')
+                    if ':' not in line or line.startswith('//'):continue
+                    name,indices = line.split(':')
+                    name=name.strip('"')
+                    indices = literal_eval(indices)
+                    
+                    group = obj.groups.get(name)
+                    if not group:
+                        group = obj.groups.add()
+                        group.name = name
+                        #continue
+                    bm.verts.ensure_lookup_table()
+                    my_id = bm.verts.layers.float.get(name) or bm.verts.layers.float.new(name)
+                    
+                    for v in bm.verts:
+                        v[my_id] = 1 if v.index in indices else 0
+
+                    group.update_length(bm,my_id)
+                    
+                bpy.ops.object.mode_set(mode='OBJECT')
+                bm.to_mesh(ob.data)
+                bpy.ops.object.mode_set(mode=mode)
+
 
         return {"FINISHED"}
-
+    
+    def draw(self,context):
+        #layout=self.layout
+        box=self.layout.box()
+        row=box.row()
+        ob=context.active_object
+        obj=ob.dp_helper
+        
+        
 class GroupsFileSave(GroupsFile):
     bl_idname = 'dp16ops.groups_file_save'
     bl_label = 'Save'
     bl_description = "Save vertics indices of group to blend file's directory+group's name"
     action = 'SAVE'
-
+    batch = BoolProperty()
+    filepath = StringProperty(subtype = 'FILE_PATH')
+    filter_glob = StringProperty(
+        default='*.txt',
+        options={'HIDDEN'}
+    )
 class GroupsFileLoad(GroupsFile):
     bl_idname = 'dp16ops.groups_file_load'
     bl_label = 'Load'
     bl_description = 'Hold CTRL to select vertices after load'
     action = 'LOAD'
-
+    batch = BoolProperty()
+    filepath = StringProperty(subtype = 'FILE_PATH')
+    filter_glob = StringProperty(
+        default='*.txt',
+        options={'HIDDEN'}
+    )
+    
 class GroupsManagement(Operator):
     bl_idname = "dp16ops.group_print_base"
     def invoke(self,context,event):
@@ -113,6 +181,7 @@ class TagVertsPrintIndices(GroupsManagement):
     bl_label = "Indices"
     bl_idname = "dp16ops.group_print_indices"
     action="INDICES"
+    
     
 class TagVertsAdd(GroupsManagement):
     '''Add selected vertices to object's active group'''
@@ -257,7 +326,7 @@ class VertexGroup(PropertyGroup):
     def vertices(self):
 
         mesh=self.id_data.data
-        bm,my_id = self.id_data.dp_helper.bmesh_layer()
+        bm,my_id = self.id_data.dp_helper.bmesh_layer(self.name)
         b_ids=[v.index for v in bm.verts if v[my_id]>0]
         mesh_verts = mesh.vertices
         
@@ -271,23 +340,31 @@ class dpDrawVertexGroupUI(UIList):
         row=row.split(.45)
         row.prop(item,'name',text='',emboss=False,icon='ALIASED')
         if item.vertices_len:
-            row.label('(%s)'%item.vertices_len)
-            row.prop(item,'color',text='')
+            s=row.split(.92,1)
+            s.label('(%s)'%item.vertices_len)
+            
+            s.prop(item,'color',text='')
     def invoke(self, context, event):        
         pass   
 
-class DpHelper(PropertyGroup):
+class DpObjectHelper(PropertyGroup):
 
     groups=CollectionProperty(type=VertexGroup)
     groups_index = IntProperty()
     groups_weight = FloatProperty(min=0,max=1,default=1,name='Weight',precision=4)
     do_draw_groups = BoolProperty(default=True)
     
+    groups_custom_save_path = StringProperty()
+    groups_file_save = StringProperty(subtype='FILE_PATH')
+    groups_file_load = StringProperty(subtype='FILE_PATH')
+
+    
     @property
     def active_group(self):
         return self.groups[self.groups_index] if self.groups_index <= len(self.groups)-1 else None
         
     def draw_groups(self,layout):
+        
         if not self.do_draw_groups:return
         group = self.active_group
         ob=self.id_data
@@ -295,8 +372,10 @@ class DpHelper(PropertyGroup):
         #box=layout.box()
         row=layout.row()
         
-        row.template_list("dpDrawVertexGroupUI", "", self, "groups", self, "groups_index", rows=2)
-        template_list_control(row,4,group='objects["%s"].dp_helper'%self.id_data.name,member='groups')
+        row.template_list("dpDrawVertexGroupUI", "", self, "groups", self, "groups_index", rows=4)
+        col=row.column(align=True)
+        template_list_control(row,4,group='objects["%s"].dp_helper'%self.id_data.name,member='groups',col=col)
+        col.menu('dp16ops.groups_menu',icon='DOWNARROW_HLT',text='')
         lay0=layout
         if ob.mode=='EDIT' and self.groups:
             row=layout.row()
@@ -313,17 +392,16 @@ class DpHelper(PropertyGroup):
             sub.operator('dp16ops.deselect_group')
             lay0=row
         
-        sub=lay0.row(align=1)
-        sub.operator('dp16ops.groups_file_save',text='',icon='SAVE_AS')
-        sub.operator('dp16ops.groups_file_load',text='',icon='LOAD_FACTORY')
-        sub.operator('dp16ops.group_print_indices',text='',icon='STICKY_UVS_DISABLE',emboss=0)
-    
-    #@property
+
     def bmesh_layer(self,group_name=None):
         
         if not group_name:
             group_name=self.active_group.name
-        bm = bmesh.from_edit_mesh(self.id_data.data)
+        if self.id_data.mode == 'EDIT':
+            bm = bmesh.from_edit_mesh(self.id_data.data)
+        else:
+            bm = bmesh.new()
+            bm.from_mesh(self.id_data.data)
         bm.verts.ensure_lookup_table()
         my_id = bm.verts.layers.float.get(group_name) or bm.verts.layers.float.new(group_name)
         
@@ -348,9 +426,14 @@ class DpHelper(PropertyGroup):
         group_name=group.name
 
         bm,my_id=self.bmesh_layer()
+        ob=self.id_data
+        mode = ob.mode
         
         if action == "INDICES":
-            print("Indices of %s's group \"%s\":\n%s"%(self.id_data.name,group_name,[v.index for v in bm.verts if v[my_id]==1]))
+            operator.report({"INFO"},"Indices of %s's group \"%s\":"%(self.id_data.name,self.active_group.name))
+            operator.report({"INFO"},str(self.active_group.indices))
+                
+               
         
         elif action in {"SELECT","DESELECT"}:
             self.select_group(bm,my_id,action == "SELECT")
@@ -367,7 +450,7 @@ class DpHelper(PropertyGroup):
             else:
                 for v in [x for x in bm.verts if x.select and not x.hide]:
                     v[my_id] = 0
-            
+
             group.update_length(bm,my_id)
 
 def groups_menu_draw(self,context):
@@ -384,9 +467,9 @@ def post_load(scene):
     bpy.types.VIEW3D_MT_object_specials.append(specials_draw)
 
 
-handlers.load_post.append(post_load)
-
 register_classes = [
+    GroupsMenu,
+    
     TagVertsAdd,
     TagVertsSelect,
     TagVertsDeselect,
@@ -397,7 +480,7 @@ register_classes = [
     GroupsFileLoad,
 
     VertexGroup,
-    DpHelper,
+    DpObjectHelper,
 
     dpDrawVertexGroupUI,
 
@@ -409,8 +492,8 @@ for cls in register_classes:
     
 def register():
 
-    Object.dp_helper = PointerProperty(type=DpHelper)
-    
+    Object.dp_helper = PointerProperty(type=DpObjectHelper)
+    handlers.load_post.append(post_load)
     bpy.types.VIEW3D_MT_object_specials.append(specials_draw)
     bpy.types.DATA_PT_vertex_groups.append(vg_UI_draw)
     bpy.types.MESH_MT_vertex_group_specials.append(groups_menu_draw)
@@ -424,4 +507,5 @@ def unregister():
     bpy.types.VIEW3D_MT_object_specials.remove(specials_draw)
     bpy.types.DATA_PT_vertex_groups.remove(vg_UI_draw)
     bpy.types.MESH_MT_vertex_group_specials.remove(groups_menu_draw)
-    
+
+if __name__ == '__main__':register()

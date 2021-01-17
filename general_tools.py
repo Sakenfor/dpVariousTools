@@ -20,8 +20,9 @@ def copy_obj(scene,obj):
 crange_list=['ADD','REMOVE','UP','DOWN']
 template_icons={'ADD':'ZOOMIN','REMOVE':'ZOOMOUT','UP':'TRIA_UP','DOWN':'TRIA_DOWN'}
 
-def template_list_control(row,crange,group,member,align=1):
-    col=row.column(align=align)
+def template_list_control(row,crange,group,member,align=1,col=None):
+    if not col:
+        col=row.column(align=align)
     for i in range(0,crange):
         cadd=col.operator('dp16ops.generic_list_add',text='',icon=template_icons[crange_list[i]])
         cadd.action=crange_list[i]
