@@ -44,9 +44,11 @@ class GroupsMenu(bpy.types.Menu):
 
     def draw(self, context):
         layout = self.layout
-        layout.operator('dp16ops.groups_file_save',text='',icon='SAVE_AS').batch = True
-        layout.operator('dp16ops.groups_file_load',text='',icon='LOAD_FACTORY').batch = True
+        layout.operator('dp16ops.groups_file_save',text='',icon='SAVE_AS')
+        layout.operator('dp16ops.groups_file_load',text='',icon='LOAD_FACTORY')
         layout.operator('dp16ops.group_print_indices',text='',icon='STICKY_UVS_DISABLE')
+        obj=context.active_object.dp_helper
+
         # layout.operator("object.select_all", text="Select/Deselect All").action = 'TOGGLE'
         # layout.operator("object.select_all", text="Inverse").action = 'INVERT'
         # layout.operator("object.select_random", text="Random")
@@ -71,11 +73,9 @@ class GroupsFile(Operator):
         
     def invoke(self,context,event):
         self.event=event
-        if self.batch:
-            context.window_manager.fileselect_add(self)
-            return {'RUNNING_MODAL'}
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
             #return context.window_manager.invoke_props_dialog(self)
-        return {"FINISHED"}
         #return self.execute(context)
     
     def execute(self,context):
@@ -139,24 +139,24 @@ class GroupsFile(Operator):
         ob=context.active_object
         obj=ob.dp_helper
         
-        
+
 class GroupsFileSave(GroupsFile):
     bl_idname = 'dp16ops.groups_file_save'
     bl_label = 'Save'
-    bl_description = "Save vertics indices of group to blend file's directory+group's name"
+    bl_description = "Save indices to a file"
     action = 'SAVE'
-    batch = BoolProperty()
+
     filepath = StringProperty(subtype = 'FILE_PATH')
     filter_glob = StringProperty(
         default='*.txt',
         options={'HIDDEN'}
     )
+    
 class GroupsFileLoad(GroupsFile):
     bl_idname = 'dp16ops.groups_file_load'
     bl_label = 'Load'
-    bl_description = 'Hold CTRL to select vertices after load'
+    bl_description = 'Load indices from a file'
     action = 'LOAD'
-    batch = BoolProperty()
     filepath = StringProperty(subtype = 'FILE_PATH')
     filter_glob = StringProperty(
         default='*.txt',
@@ -164,11 +164,9 @@ class GroupsFileLoad(GroupsFile):
     )
     
 class GroupsManagement(Operator):
-    bl_idname = "dp16ops.group_print_base"
+    
     def invoke(self,context,event):
-        #scene=context.scene
         self.event=event
-        #self.ob=context.active_object
         return self.execute(context)
     
     def execute(self,context):
