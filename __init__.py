@@ -26,7 +26,7 @@ from bpy.types import (
     Mesh,
     UIList,
     PropertyGroup,
-    
+    Menu,
     )
 
 from bpy.props import (
@@ -40,7 +40,7 @@ from bpy.props import (
     FloatVectorProperty,
     )
 
-class GroupsMenu(bpy.types.Menu):
+class GroupsMenu(Menu):
     bl_idname = "dp16ops.groups_menu"
     bl_label = "Select"
 
@@ -51,14 +51,11 @@ class GroupsMenu(bpy.types.Menu):
         layout.operator('dp16ops.group_print_indices',text='',icon='STICKY_UVS_DISABLE')
         obj=context.active_object.dp_helper
 
-        # layout.operator("object.select_all", text="Select/Deselect All").action = 'TOGGLE'
-        # layout.operator("object.select_all", text="Inverse").action = 'INVERT'
-        # layout.operator("object.select_random", text="Random")
 def specials_draw(self,context):
-    row=self.layout.row()
-    C=bpy.context
-    ob=C.active_object
+    ob=context.active_object
     if not ob:return
+    
+    row=self.layout.row()
     if ob.type=="MESH":
         row.operator('dp16var.safely_remove_doubles')
 
@@ -348,22 +345,33 @@ class DpObjectHelper(PropertyGroup):
     groups_index = IntProperty()
     groups_weight = FloatProperty(min=0,max=1,default=1,name='Weight',precision=4)
     do_draw_groups = BoolProperty(default=True)
+    to_mesh=BoolProperty()
     
     @contextmanager
-    def bm(self,to_mesh=False):
+    def bm(self,to_mesh=False,m='OBJECT'):
         mode=self.id_data.mode
+        
         try:
             
-            bpy.ops.object.mode_set(mode='OBJECT')
-            bm = bmesh.new()
-            bm.from_mesh(self.id_data.data)
-
+            bpy.ops.object.mode_set(mode=m)
+            if m == 'OBJECT':
+                bm = bmesh.new()
+                bm.from_mesh(self.id_data.data)
+            else:
+                bm = bmesh.from_edit_mesh(self.id_data.data)
+            bm.verts.ensure_lookup_table()
             yield bm
+        
         finally:
-            if to_mesh:
-                bm.to_mesh(self.id_data.data)
+        
+            if to_mesh or self.to_mesh:
+                try:
+                    bm.to_mesh(self.id_data.data)
+                except:
+                    pass
             bpy.ops.object.mode_set(mode=mode)
-    
+            self.to_mesh=False
+            
     def on_groups_remove(self,index):
         with self.bm(1) as bm:
             my_id = bm.verts.layers.float.get(self.groups[index].name)
@@ -392,7 +400,7 @@ class DpObjectHelper(PropertyGroup):
             
         col.menu('dp16ops.groups_menu',icon='DOWNARROW_HLT',text='')
         lay0=layout
-        if ob.mode=='EDIT' and self.groups:
+        if ob.mode in {"EDIT","WEIGHT_PAINT"} and self.groups:
             row=layout.row()
             row.prop(self,'groups_weight',slider=1)
             row=layout.row()
@@ -433,38 +441,40 @@ class DpObjectHelper(PropertyGroup):
         bm.select_flush_mode()   
         self.id_data.data.update()
     
-    def operate_groups(self,operator,action):
+    def operate_groups(self,operator,action='SELECT'):
         
         if not self.active_group:return
         group=self.active_group
         group_name=group.name
+        manip = action in {"ADD","SET","REMOVE"}
+        with self.bm(m='EDIT' if not manip else 'OBJECT') as bm:
 
-        bm,my_id=self.bmesh_layer()
-        ob=self.id_data
-        mode = ob.mode
-        
-        if action == "INDICES":
-            operator.report({"INFO"},"Indices of %s's group \"%s\":"%(self.id_data.name,self.active_group.name))
-            operator.report({"INFO"},str(self.active_group.indices))
-                
-
-        elif action in {"SELECT","DESELECT"}:
-            self.select_group(bm,my_id,action == "SELECT")
-
-        else:
-
-            if action=="ADD":
-                for v in [x for x in bm.verts if x.select and not x.hide]:
-                    v[my_id] = self.groups_weight
+            my_id = bm.verts.layers.float.get(group_name) or bm.verts.layers.float.new(group_name)
+            ob=self.id_data
             
-            elif action=="SET":
-                for v in bm.verts:
-                    v[my_id] = self.groups_weight if v.select else 0
-            else:
-                for v in [x for x in bm.verts if x.select and not x.hide]:
-                    v[my_id] = 0
+            if action == "INDICES":
+                operator.report({"INFO"},"Indices of %s's group \"%s\":"%(self.id_data.name,self.active_group.name))
+                operator.report({"INFO"},str(self.active_group.indices))
+                    
 
-            group.update_length(bm,my_id)
+            elif action in {"SELECT","DESELECT"}:
+                self.select_group(bm,my_id,action == "SELECT")
+
+            else:
+                
+                self.to_mesh=True # on exit of context, will put bmesh to mesh
+                if action=="ADD":
+                    for v in [x for x in bm.verts if x.select and not x.hide]:
+                        v[my_id] = self.groups_weight
+                
+                elif action=="SET":
+                    for v in bm.verts:
+                        v[my_id] = self.groups_weight if v.select else 0
+                else:
+                    for v in [x for x in bm.verts if x.select and not x.hide]:
+                        v[my_id] = 0
+
+                group.update_length(bm,my_id)
 
 def groups_menu_draw(self,context):
     self.layout.prop(context.active_object.dp_helper,'do_draw_groups',text='Draw helper groups',icon='ALIASED')
