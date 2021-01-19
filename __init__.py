@@ -263,16 +263,21 @@ def set_group_name(self, value):
     ob=self.id_data
     groups = ob.dp_helper.groups
     new_name = value
-    digits = new_name.split('.')
-    #if len(digits)>1:
-    if digits[-1].isnumeric():
-        new_name = value[:-4]
-    already = groups.get(new_name)
+
+    already = groups.get(value)
+    if already == self:already=None
+    # if already:
+        # digits = new_name.split('.')
+        # if len(digits)>1:
+            # if digits[-1].isnumeric():
+                # new_name = value[:-4] 
     nn=1
     while already:
         new_name = '%s.%03d'%(value,nn)
         already = groups.get(new_name)
-        if already == self:already=None
+        if already == self:
+            already=None
+            #new_name = value
         nn+=1
     self["name"] = new_name
     if oldname != new_name:
@@ -480,8 +485,7 @@ class DpObjectHelper(PropertyGroup):
         with self.bm(1) as bm:
             bm.select_mode = {'FACE'}
             for f in bm.faces: 
-                if len(f.verts)>4:
-                    f.select = True
+                f.select=True if len(f.verts)> 4 else False
             bm.select_flush_mode()
             self.id_data.data.update()
         bpy.ops.object.mode_set(mode='EDIT')
