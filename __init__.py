@@ -39,17 +39,28 @@ from bpy.props import (
     FloatVectorProperty,
     )
 
+class IndicesStoreMenu(Menu):
+    bl_idname = "dp16ops.indices_store_menu"
+    bl_label = "Indices"
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.label("Hello")
+        
 class GroupsMenu(Menu):
     bl_idname = "dp16ops.groups_menu"
     bl_label = "Select"
 
     def draw(self, context):
         layout = self.layout
+
         layout.operator('dp16ops.groups_file_save',icon='SAVE_AS')
         layout.operator('dp16ops.groups_file_load',icon='LOAD_FACTORY')
         layout.operator('dp16ops.group_print_indices',icon='STICKY_UVS_DISABLE')
         layout.operator('dp16ops.groups_clean_all',icon='PANEL_CLOSE')
-        #obj=context.active_object.dp_helper
+        layout.menu('dp16ops.indices_store_menu',icon='LINENUMBERS_ON')
+        layout.separator()
+        layout.operator('dp16ops.select_ngons',icon='FACESEL')
 
 def specials_draw(self,context):
     ob=context.active_object
@@ -152,7 +163,18 @@ class GroupsClean(Operator):
     def execute(self,context):
         context.active_object.dp_helper.clean_groups()
         return {"FINISHED"}
+
+class HelperNgonsSelect(Operator):
+    bl_idname = 'dp16ops.select_ngons'
+    bl_label = 'Ngons'
+    bl_description = "Select Ngons (Faces with more than 4 vertices)"
+    
+
+    def execute(self,context):
+        context.active_object.dp_helper.select_ngons()
         
+        return {"FINISHED"}
+
 class GroupsFileSave(GroupsFile):
     bl_idname = 'dp16ops.groups_file_save'
     bl_label = 'Save'
@@ -453,7 +475,16 @@ class DpObjectHelper(PropertyGroup):
             sub.operator('dp16ops.select_group')
             sub.operator('dp16ops.deselect_group')
             lay0=row
-        
+    
+    def select_ngons(self):
+        with self.bm(1) as bm:
+            bm.select_mode = {'FACE'}
+            for f in bm.faces: 
+                if len(f.verts)>4:
+                    f.select = True
+            bm.select_flush_mode()
+            self.id_data.data.update()
+        bpy.ops.object.mode_set(mode='EDIT')
     def bmesh_layer(self,group_name=None):
         
         if not group_name:
@@ -535,14 +566,18 @@ def vg_UI_draw(self, context):
 
 
 register_classes = [
+    IndicesStoreMenu,
     GroupsMenu,
+
     
     TagVertsAdd,
     TagVertsSelect,
     TagVertsDeselect,
     TagVertsRemove,
     TagVertsPrintIndices,
-
+    
+    HelperNgonsSelect,
+    
     GroupsFileSave,
     GroupsFileLoad,
     GroupsClean,
