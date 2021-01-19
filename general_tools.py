@@ -141,12 +141,22 @@ class SafelyRemoveDoubles(Operator):
         bpy.data.objects.remove(nrm_src)
         return {"FINISHED"}
 
+
+register_classes = [
+    SafelyRemoveDoubles,
+    generic_list_adder,
+    ]
+    
 def register():
-    butils.register_module(__name__)
-    
+    from bpy.utils import register_class
+    for cls in register_classes:
+        register_class(cls)
+        
 def unregister():
-    butils.unregister_module(__name__)
-    
-if __name__ == 'general_tools':
+    from bpy.utils import unregister_class
+    for cls in register_classes:
+        unregister_class(cls)
+        
+if __name__ == 'dpVariousTools.general_tools':
     register()
 
