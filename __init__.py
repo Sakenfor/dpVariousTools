@@ -40,7 +40,7 @@ from bpy.props import (
     )
 
 class IndicesStoreMenu(Menu):
-    bl_idname = "dp16ops.indices_store_menu"
+    bl_idname = "dp16.indices_store_menu"
     bl_label = "Indices"
     
     def draw(self, context):
@@ -48,19 +48,24 @@ class IndicesStoreMenu(Menu):
         layout.label("Hello")
         
 class GroupsMenu(Menu):
-    bl_idname = "dp16ops.groups_menu"
+    bl_idname = "dp16.groups_menu"
     bl_label = "Select"
 
     def draw(self, context):
         layout = self.layout
-
-        layout.operator('dp16ops.groups_file_save',icon='SAVE_AS')
-        layout.operator('dp16ops.groups_file_load',icon='LOAD_FACTORY')
-        layout.operator('dp16ops.group_print_indices',icon='STICKY_UVS_DISABLE')
-        layout.operator('dp16ops.groups_clean_all',icon='PANEL_CLOSE')
-        layout.menu('dp16ops.indices_store_menu',icon='LINENUMBERS_ON')
+        layout.label('Groups:',icon='TRIA_DOWN')
+        layout.operator('dp16.groups_file_save',icon='SAVE_AS')
+        layout.operator('dp16.groups_file_load',icon='LOAD_FACTORY')
+        layout.operator('dp16.group_print_indices',icon='STICKY_UVS_DISABLE')
+        layout.operator('dp16.groups_clean_all',icon='PANEL_CLOSE')
+        #layout.menu('dp16.indices_store_menu',icon='LINENUMBERS_ON')
         layout.separator()
-        layout.operator('dp16ops.select_ngons',icon='FACESEL')
+        layout.label('Indices:',icon='TRIA_DOWN')
+        layout.operator('dp16.store_indices',icon='VERTEXSEL')
+        layout.operator('dp16.restore_indices',icon='RECOVER_LAST')
+        layout.separator()
+        layout.label('Mesh:',icon='TRIA_DOWN')
+        layout.operator('dp16.select_ngons',icon='FACESEL')
 
 def specials_draw(self,context):
     ob=context.active_object
@@ -68,7 +73,7 @@ def specials_draw(self,context):
     
     row=self.layout.row()
     if ob.type=="MESH":
-        row.operator('dp16ops.safely_remove_doubles')
+        row.operator('dp16.safely_remove_doubles')
 
 
 class GroupsFile(Operator):
@@ -145,7 +150,7 @@ class GroupsFile(Operator):
         obj=ob.dp_helper
         
 class GroupsClean(Operator):
-    bl_idname = 'dp16ops.groups_clean_all'
+    bl_idname = 'dp16.groups_clean_all'
     bl_label = 'Clean'
     bl_description = "Remove all groups from this object,\nHold Ctrl to not prompt confirm"
     
@@ -164,8 +169,27 @@ class GroupsClean(Operator):
         context.active_object.dp_helper.clean_groups()
         return {"FINISHED"}
 
+class HelperStoreIndices(Operator):
+
+    def execute(self,context):
+        context.active_object.dp_helper.do_indices_storage(self.ACTION)
+        
+        return {"FINISHED"}
+
+class StoreIndices(HelperStoreIndices):
+    bl_idname = 'dp16.store_indices'
+    bl_label = 'Store'
+    bl_description = 'Store vertex indices in bmesh layer'
+    ACTION = 'STORE'
+    
+class RestoreIndices(HelperStoreIndices):
+    bl_idname = 'dp16.restore_indices'
+    bl_label = 'Restore'
+    ACTION = 'RESTORE'
+    bl_description = 'Restore vertex indices from bmesh layer. NOTE: When extruding geomtry, bmesh layers are copied too!'
+    
 class HelperNgonsSelect(Operator):
-    bl_idname = 'dp16ops.select_ngons'
+    bl_idname = 'dp16.select_ngons'
     bl_label = 'Ngons'
     bl_description = "Select Ngons (Faces with more than 4 vertices)"
     
@@ -176,7 +200,7 @@ class HelperNgonsSelect(Operator):
         return {"FINISHED"}
 
 class GroupsFileSave(GroupsFile):
-    bl_idname = 'dp16ops.groups_file_save'
+    bl_idname = 'dp16.groups_file_save'
     bl_label = 'Save'
     bl_description = "Save indices to a file"
     
@@ -193,7 +217,7 @@ class GroupsFileSave(GroupsFile):
         return len(context.active_object.dp_helper.groups)
         
 class GroupsFileLoad(GroupsFile):
-    bl_idname = 'dp16ops.groups_file_load'
+    bl_idname = 'dp16.groups_file_load'
     bl_label = 'Load'
     bl_description = 'Load indices from a file'
     action = 'LOAD'
@@ -217,7 +241,7 @@ class GroupsManagement(Operator):
 class TagVertsPrintIndices(GroupsManagement):
     '''Print indices'''
     bl_label = "Indices"
-    bl_idname = "dp16ops.group_print_indices"
+    bl_idname = "dp16.group_print_indices"
     action="INDICES"
     
     @classmethod
@@ -227,31 +251,31 @@ class TagVertsPrintIndices(GroupsManagement):
 class TagVertsAdd(GroupsManagement):
     '''Add selected vertices to object's active group'''
     bl_label = "Assign"
-    bl_idname = "dp16ops.add_to_group"
+    bl_idname = "dp16.add_to_group"
     action="ADD"
 
 class TagVertsSet(GroupsManagement):
     '''Set ONLY selected vertices to be part of the active group'''
     bl_label = "Set Group"
-    bl_idname = "dp16ops.set_to_group"
+    bl_idname = "dp16.set_to_group"
     action="SET"
 
 class TagVertsSelect(GroupsManagement):
     '''Select vertices of the active group'''
     bl_label = "Select"
-    bl_idname = "dp16ops.select_group"
+    bl_idname = "dp16.select_group"
     action="SELECT"
     
 class TagVertsDeselect(GroupsManagement):
     '''Deselect vertices of the active group'''
     bl_label = "Deselect"
-    bl_idname = "dp16ops.deselect_group"
+    bl_idname = "dp16.deselect_group"
     action="DESELECT"
     
 class TagVertsRemove(GroupsManagement):
     '''Remove selected vertices from the active group'''
     bl_label = "Remove"
-    bl_idname = "dp16ops.remove_from_group"
+    bl_idname = "dp16.remove_from_group"
     action="REMOVE"
 
 
@@ -464,21 +488,21 @@ class DpObjectHelper(PropertyGroup):
             member='groups',
             col=col)
             
-        col.menu('dp16ops.groups_menu',icon='DOWNARROW_HLT',text='')
+        col.menu('dp16.groups_menu',icon='DOWNARROW_HLT',text='')
         lay0=layout
         if ob.mode in {"EDIT","WEIGHT_PAINT"} and self.groups:
             row=layout.row()
             row.prop(self,'groups_weight',slider=1)
             row=layout.row()
             sub=row.row(align=1)
-            sub.operator('dp16ops.add_to_group')
+            sub.operator('dp16.add_to_group')
             sub=sub.split(.8,1)
-            sub.operator('dp16ops.remove_from_group')
-            #sub.operator('dp16ops.group_print_indices',text='',icon='STICKY_UVS_DISABLE',emboss=0)
+            sub.operator('dp16.remove_from_group')
+            #sub.operator('dp16.group_print_indices',text='',icon='STICKY_UVS_DISABLE',emboss=0)
 
             sub=row.row(align=1)
-            sub.operator('dp16ops.select_group')
-            sub.operator('dp16ops.deselect_group')
+            sub.operator('dp16.select_group')
+            sub.operator('dp16.deselect_group')
             lay0=row
     
     def select_ngons(self):
@@ -515,6 +539,17 @@ class DpObjectHelper(PropertyGroup):
         bm.select_flush_mode()   
         self.id_data.data.update()
     
+    def do_indices_storage(self,action):
+        with self.bm(1) as bm:
+            layer_id = bm.verts.layers.int.get("indices_save") or bm.verts.layers.int.new("indices_save")
+            if action == 'STORE':
+                for v in bm.verts:
+                    v[layer_id] = v.index
+            else:
+                for v in bm.verts:
+                    v.index = v[layer_id]
+                bm.verts.sort()
+            
     def clean_groups(self):
         with self.bm(1) as bm:
             while self.groups:
@@ -572,7 +607,9 @@ def vg_UI_draw(self, context):
 register_classes = [
     IndicesStoreMenu,
     GroupsMenu,
-
+    
+    StoreIndices,
+    RestoreIndices,
     
     TagVertsAdd,
     TagVertsSelect,

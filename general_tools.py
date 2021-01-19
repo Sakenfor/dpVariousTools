@@ -24,14 +24,14 @@ def template_list_control(row,crange,group,member,align=1,col=None):
     if not col:
         col=row.column(align=align)
     for i in range(0,crange):
-        cadd=col.operator('dp16ops.generic_list_add',text='',icon=template_icons[crange_list[i]])
+        cadd=col.operator('dp16.generic_list_add',text='',icon=template_icons[crange_list[i]])
         cadd.action=crange_list[i]
         cadd.group=group
         cadd.member=member
 
 
 class generic_list_adder(Operator):
-    bl_idname = "dp16ops.generic_list_add"
+    bl_idname = "dp16.generic_list_add"
     bl_label = "Generic List Controller"
     bl_description = "Add, remove or move items in the list on the left side.\nHold Ctrl when adding to prompt naming window.\nHold Ctrl when removing to not prompt confirm."
     bl_options = {'REGISTER','UNDO'}
@@ -116,7 +116,7 @@ def transfer_normals(source,target,method='Normals Transfer'):
 
 class SafelyRemoveDoubles(Operator):
     """Remove doubles and keep normals"""
-    bl_idname = "dp16ops.safely_remove_doubles"
+    bl_idname = "dp16.safely_remove_doubles"
     bl_label="Safely Remove Doubles"
     bl_options= {'REGISTER','UNDO'}
     
