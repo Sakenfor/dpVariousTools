@@ -57,15 +57,12 @@ def specials_draw(self,context):
     
     row=self.layout.row()
     if ob.type=="MESH":
-        row.operator('dp16var.safely_remove_doubles')
+        row.operator('dp16ops.safely_remove_doubles')
 
 
 class GroupsFile(Operator):
 
-    @classmethod
-    def poll(self,context):
-        return len(context.active_object.dp_helper.groups)
-        
+
     def invoke(self,context,event):
         self.event=event
         context.window_manager.fileselect_add(self)
@@ -140,7 +137,11 @@ class GroupsClean(Operator):
     bl_idname = 'dp16ops.groups_clean_all'
     bl_label = 'Clean'
     bl_description = "Remove all groups from this object,\nHold Ctrl to not prompt confirm"
-
+    
+    @classmethod
+    def poll(self,context):
+        return len(context.active_object.dp_helper.groups)
+        
     def invoke(self,context,event):
         if event.ctrl:return self.execute(context)
         return context.window_manager.invoke_props_dialog(self)
@@ -156,6 +157,7 @@ class GroupsFileSave(GroupsFile):
     bl_idname = 'dp16ops.groups_file_save'
     bl_label = 'Save'
     bl_description = "Save indices to a file"
+    
     action = 'SAVE'
 
     filepath = StringProperty(subtype = 'FILE_PATH')
@@ -164,6 +166,10 @@ class GroupsFileSave(GroupsFile):
         options={'HIDDEN'}
     )
     
+    @classmethod
+    def poll(self,context):
+        return len(context.active_object.dp_helper.groups)
+        
 class GroupsFileLoad(GroupsFile):
     bl_idname = 'dp16ops.groups_file_load'
     bl_label = 'Load'
@@ -192,6 +198,10 @@ class TagVertsPrintIndices(GroupsManagement):
     bl_idname = "dp16ops.group_print_indices"
     action="INDICES"
     
+    @classmethod
+    def poll(self,context):
+        return len(context.active_object.dp_helper.groups)
+        
 class TagVertsAdd(GroupsManagement):
     '''Add selected vertices to object's active group'''
     bl_label = "Assign"

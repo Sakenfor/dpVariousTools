@@ -114,8 +114,8 @@ def transfer_normals(source,target,method='Normals Transfer'):
     target.hide,target.hide_select=target_state
 
 class SafelyRemoveDoubles(Operator):
-    """Various Rename Arma."""
-    bl_idname = "dp16var.safely_remove_doubles"
+    """Remove doubles and keep normals"""
+    bl_idname = "dp16ops.safely_remove_doubles"
     bl_label="Safely Remove Doubles"
     bl_options= {'REGISTER','UNDO'}
     
