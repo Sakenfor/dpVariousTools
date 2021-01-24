@@ -17,8 +17,12 @@ from bpy import utils as butils
 from bpy.app import handlers
 from contextlib import contextmanager 
 from collections import OrderedDict
+from importlib import reload as lib_reload
 
-from . import general_tools as gt
+if 'gt' in locals():
+    lib_reload(general_tools)
+else:
+    from . import general_tools as gt
 
 from bpy.types import (
     Operator,Object,
@@ -66,15 +70,8 @@ class GroupsMenu(Menu):
         layout.separator()
         layout.label('Mesh:',icon='TRIA_DOWN')
         layout.operator('dp16.select_ngons',icon='FACESEL')
-
-def specials_draw(self,context):
-    ob=context.active_object
-    if not ob:return
-    
-    row=self.layout.row()
-    if ob.type=="MESH":
-        row.operator('dp16.safely_remove_doubles')
-
+        layout.operator('dp16.geo_merge',icon='MESH_ICOSPHERE')
+        
 
 class GroupsFile(Operator):
 
@@ -437,6 +434,15 @@ class DpObjectHelper(PropertyGroup):
     do_draw_groups = BoolProperty(default=True)
     to_mesh=BoolProperty()
     
+    join_group = StringProperty()
+    merge_threshold = FloatProperty(
+        min=0.000001,
+        max=0.02,
+        default=0.0001,
+        precision=6,
+        name='Threshold',
+        )
+    
     @contextmanager
     def bm(self,to_mesh=False,m='OBJECT'):
         mode=self.id_data.mode
@@ -461,7 +467,7 @@ class DpObjectHelper(PropertyGroup):
                     pass
             bpy.ops.object.mode_set(mode=mode)
             self.to_mesh=False
-            
+            bm.free()
     def on_groups_remove(self,index):
         with self.bm(1) as bm:
             my_id = bm.verts.layers.float.get(self.groups[index].name)
@@ -513,6 +519,7 @@ class DpObjectHelper(PropertyGroup):
             bm.select_flush_mode()
             self.id_data.data.update()
         bpy.ops.object.mode_set(mode='EDIT')
+    
     def bmesh_layer(self,group_name=None):
         
         if not group_name:
@@ -632,9 +639,8 @@ register_classes = [
     ]
 
 
-
 def post_load(scene):
-    bpy.types.VIEW3D_MT_object_specials.append(specials_draw)
+    bpy.types.VIEW3D_MT_object_specials.append(gt.specials_draw)
     # for cls in register_classes:
         # register_class(cls)
 
@@ -646,7 +652,7 @@ def register():
         
     Object.dp_helper = PointerProperty(type=DpObjectHelper)
     handlers.load_post.append(post_load)
-    bpy.types.VIEW3D_MT_object_specials.append(specials_draw)
+    bpy.types.VIEW3D_MT_object_specials.append(gt.specials_draw)
     bpy.types.DATA_PT_vertex_groups.append(vg_UI_draw)
     bpy.types.MESH_MT_vertex_group_specials.append(groups_menu_draw)
     
@@ -658,7 +664,7 @@ def unregister():
     handlers.load_post.remove(post_load)
     del Object.dp_helper
     
-    bpy.types.VIEW3D_MT_object_specials.remove(specials_draw)
+    bpy.types.VIEW3D_MT_object_specials.remove(gt.specials_draw)
     bpy.types.DATA_PT_vertex_groups.remove(vg_UI_draw)
     bpy.types.MESH_MT_vertex_group_specials.remove(groups_menu_draw)
 

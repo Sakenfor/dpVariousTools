@@ -142,9 +142,101 @@ class SafelyRemoveDoubles(Operator):
         bpy.data.objects.remove(nrm_src)
         return {"FINISHED"}
 
+def join_bmesh(target_bm, source_bm):
+    '''
+    source_bm into target_bm
+    returns target_bm with added geometry, if source_bm is not empty.
+    '''
+
+    source_bm.verts.layers.int.new('index')
+    idx_layer = source_bm.verts.layers.int['index']
+    nverts=[]
+    for face in source_bm.faces:
+        new_verts = []
+        for old_vert in face.verts:
+            #tag is False by defualt, Im using it to mean its been added
+            if not old_vert.tag:
+                new_vert = target_bm.verts.new(old_vert.co)
+                target_bm.verts.index_update()
+                old_vert[idx_layer] = new_vert.index
+                old_vert.tag = True
+
+            target_bm.verts.ensure_lookup_table()
+            idx = old_vert[idx_layer]
+            new_verts.append(target_bm.verts[idx])
+
+        f=target_bm.faces.new(new_verts)
+        nverts.extend(f.verts)
+    return target_bm,list(set(nverts))
+
+import bmesh
+class GeoMerge(Operator):
+    
+    bl_idname = "dp16.geo_merge"
+    bl_label="Geo Merge"
+    bl_options= {'REGISTER','UNDO'}
+    
+    def invoke(self,context,event):
+        
+        #print(len(context.selected_objects))
+        if len(context.selected_objects)>2:
+            return self.execute(context)
+        return context.window_manager.invoke_props_dialog(self)
+    
+    def draw(self,context):
+        #print("DRAWING")
+        box=self.layout.box()
+        row=box.row()
+        target = context.active_object
+        row.label(target.name)
+        row.prop_search(target.dp_helper,'join_group',target.dp_helper,'groups',icon='SNAP_VOLUME',text='')
+        row=box.row()
+        row.prop(target.dp_helper,'merge_threshold')
+
+    def execute(self,context):
+        
+        ob = context.active_object
+        obj = context.active_object.dp_helper
+        joins = context.selected_objects
+        joins.remove(context.active_object)
+        
+        with obj.bm(0) as bm:
+            
+            merge_id = bm.verts.layers.float.get(obj.join_group)
+            graft = obj.join_group and merge_id and len(joins)==1
+
+            for j in joins:
+                jm = bmesh.new()
+                jm.from_mesh(j.data)
+                _,new_verts = join_bmesh(bm,jm)
+                #nw = 
+                jm.clear()
+                
+            if graft:
+                graft_verts = [ v for v in bm.verts if v[merge_id]>0]
+                #print(graft_verts)
+                bmesh.ops.remove_doubles(bm, verts=new_verts+graft_verts, dist=obj.merge_threshold)
+
+            bm.to_mesh(ob.data)
+            ob.data.update()
+            bm.clear()
+            bm.free()
+        
+        return {"FINISHED"}
+            
+def specials_draw(self,context):
+    ob=context.active_object
+    if not ob:return
+    
+    layout=self.layout#.row()
+    if ob.type=="MESH":
+        layout.operator('dp16.safely_remove_doubles')
+        layout.operator('dp16.geo_merge',icon='MESH_ICOSPHERE')
+
 
 register_classes = [
     SafelyRemoveDoubles,
+    GeoMerge,
     generic_list_adder,
     ]
     
