@@ -1,9 +1,18 @@
 from bpy.types import (
 Operator,
+Mesh,
+PropertyGroup,
+UIList,
+Object,
 )
 from bpy.props import (
 StringProperty,
+BoolProperty,
+IntProperty,
+CollectionProperty,
+PointerProperty,
 )
+
 from bpy import utils as butils
 import bpy
 
@@ -231,10 +240,185 @@ def specials_draw(self,context):
     layout=self.layout#.row()
     if ob.type=="MESH":
         layout.operator('dp16.safely_remove_doubles')
-        layout.operator('dp16.geo_merge',icon='MESH_ICOSPHERE')
+        #layout.operator('dp16.geo_merge',icon='MESH_ICOSPHERE')
+        #layout.operator('dp16.transfer_shapekey',icon='SHAPEKEY_DATA')
+
+
+
+class TS_Choice(PropertyGroup):
+    transfer =  BoolProperty(default=True)
+    
+class TransferChoiceGroup(PropertyGroup):
+    choices = CollectionProperty(type=TS_Choice)
+    choices_index = IntProperty()
+    mesh = PointerProperty(type=Mesh)
+    
+    @property
+    def name(self):
+        return self.mesh.name
+    
+    def refresh_keys(self):
+        kb = self.mesh.shape_keys.key_blocks
+        for k in list(kb)[1:]:
+            k2 = self.choices.get(k.name)
+            if not k2:
+                k2 = self.choices.add()
+                k2.name = k.name
+        for i,k in enumerate(list(reversed(self.choices))):
+            if not kb.get(k.name):
+                self.choices.remove(i)
+    
+    @property
+    def transferable(self):
+        return [ k for k in self.choices if k.transfer ]
+    
+class ShapeKeySettings(PropertyGroup):
+    ssettings = CollectionProperty(type = TransferChoiceGroup)
+    last_transfer = PointerProperty(type = Mesh)
+    
+    def get_shape_settings(self,mesh):
+        if type(mesh) is Object:
+            mesh = mesh.data
+        for i,s in enumerate(self.ssettings):
+            if s.mesh == mesh:
+                return s
+        s = self.ssettings.add()
+        s.mesh = mesh
+        #self.last_transfer = 
+        
+        return s
+        
+    def refresh(self,source):
+        
+        s = self.get_shape_settings(source.data)
+        s.refresh_keys()
+    
+    def transfer(self,target,operator = None):
+        context = bpy.context
+        s = self.get_shape_settings(target)
+        obj = self.id_data.dp_helper
+        ob = self.id_data
+        me = ob.data
+        source = context.selected_objects[:]
+        source.remove(ob)
+        
+        if not me.shape_keys:
+            ob.shape_key_add("Basis")
+            
+        kb = me.shape_keys.key_blocks
+
+        #with obj.bm(1) as bm:
+        for sk in s.transferable:
+            key = kb.get(sk.name)
+            if not key:
+                key = ob.shape_key_add(sk.name)
+        me.update()
+        source_ob = source[0].dp_helper
+        #mapped = [ob.
+
+            
+        with obj.bm(1) as bm:
+            indices_id = bm.verts.layers.int.get("indices_save")
+            #if not indices_id:
+                
+            
+            with source_ob.bm() as sbm:
+                source_verts = sbm.verts
+                
+                indices_id2 = sbm.verts.layers.int.get("indices_save")
+                if not indices_id2 or not indices_id :
+                    operator.report({"ERROR"},"Store indices first, something went wrong")
+                    return
+                mapped_source = {v[indices_id2]:v for v in source_verts} 
+                
+                for k in s.transferable:
+                    source_shape_lay = sbm.verts.layers.shape.get(k.name)
+                    target_lay = bm.verts.layers.shape.get(k.name)
+                    #source_v = {
+                    for v in bm.verts:
+                        if mapped_source.get(v[indices_id]):
+                            v[target_lay] = mapped_source[v[indices_id]][source_shape_lay]
+
+        me.update()
+
+        
+class TransferShapeKeyUI(UIList):
+    
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        row=layout.row()
+        row.label(item.name)
+        row.prop(item,'transfer')
+    
+    def invoke(self, context, event):        
+        pass 
+        
+class TransferShapekey(Operator):
+    bl_idname = "dp16.transfer_shapekey"
+    bl_label="Transfer ShapeKey"
+    bl_options= {'REGISTER','UNDO'}
+    
+    def invoke(self,context,event):
+        source = context.selected_objects[:]
+        if len(source)!=2:return {"FINISHED"}
+        source.remove(context.active_object)
+        
+        context.active_object.dp_helper.sk_settings.refresh(source[0])
+        
+        return context.window_manager.invoke_props_dialog(self)
+    
+    
+    def draw(self,context):
+        source = context.selected_objects[:]
+        source.remove(context.active_object)
+
+        se = context.active_object.dp_helper.sk_settings.get_shape_settings(source[0])
+        
+        l = self.layout
+        box=l.box()
+        row=box.row()
+        row.label("Choose which keys to transfer")
+        row=box.row()
+        row.template_list("TransferShapeKeyUI", "", se, "choices", se, "choices_index", rows=4)
+
+    def execute(self,context):
+        source = context.selected_objects[:]
+        source.remove(context.active_object)
+        
+        context.active_object.dp_helper.sk_settings.transfer(source[0],self)
+        
+        return {"FINISHED"}
+
+class dpDrawVertexGroupUI(UIList):
+    
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        row=layout.row()
+        row=row.split(.05)
+        row.prop(item,'export',icon=['RADIOBUT_OFF','RADIOBUT_ON'][item.export],text='',emboss=0)
+        row.prop(item,'name',text='',emboss=False)#,icon='ALIASED')
+        lenl=''
+        if item.vertices_len:
+            lenl='(%s)'%item.vertices_len
+
+        sub=row.split(.8,1)
+        sub.label(lenl)
+        sub.prop(item,'lock',icon=['UNLOCKED','LOCKED'][item.lock],text='')
+        #sub.prop(item,'export',icon=['RADIOBUT_OFF','RADIOBUT_ON'][item.export],text='')
+        sub.prop(item,'color',text='')
+    
+    def invoke(self, context, event):        
+        pass   
+
 
 
 register_classes = [
+    TransferShapeKeyUI,
+    dpDrawVertexGroupUI,
+    
+    TS_Choice,
+    TransferChoiceGroup,
+    ShapeKeySettings,
+    TransferShapekey,
+    
     SafelyRemoveDoubles,
     GeoMerge,
     generic_list_adder,

@@ -27,7 +27,6 @@ else:
 from bpy.types import (
     Operator,Object,
     Mesh,
-    UIList,
     PropertyGroup,
     Menu,
     )
@@ -71,6 +70,7 @@ class GroupsMenu(Menu):
         layout.label('Mesh:',icon='TRIA_DOWN')
         layout.operator('dp16.select_ngons',icon='FACESEL')
         layout.operator('dp16.geo_merge',icon='MESH_ICOSPHERE')
+        layout.operator('dp16.transfer_shapekey',icon='SHAPEKEY_DATA')
         
 
 class GroupsFile(Operator):
@@ -96,12 +96,19 @@ class GroupsFile(Operator):
         if mode !='OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
         if self.action == 'SAVE':
+            indices_save=[]
+            with obj.bm() as bm:
+                bmv = bm.verts
+                bm.verts.ensure_lookup_table()
+                for g in [ _ for _ in obj.groups if _.export ]:
+                    
+                    my_id = bmv.layers.float.get(g.name)# or bm.verts.layers.float.new(group_name)
+                    if not my_id:continue
+                    indices_save.append('%s:%s'%(g.name,[v.index for v in bmv if v[my_id]>0]))
 
-            indices_save = '\n'.join('%s:%s'%(g.name,g.indices) for g in obj.groups if g.export)
-
-            if osp.exists(osp.dirname(path)):
+            if osp.exists(osp.dirname(path)) and indices_save:
                 with open(path,'w') as file:
-                    file.write(str(indices_save))
+                    file.write(str('\n'.join(x for x in indices_save)))
                 
 
         elif self.action == 'LOAD':
@@ -111,6 +118,7 @@ class GroupsFile(Operator):
                 raw = file.read()
                 bm = bmesh.new()
                 bm.from_mesh(ob.data)
+                bm.verts.ensure_lookup_table()
                 for line in raw.split('\n'):
                     line=line.strip(' ')
                     if ':' not in line or line.startswith('//'):continue
@@ -124,7 +132,7 @@ class GroupsFile(Operator):
                         group.name = name
                         #continue
                     if group.lock:continue
-                    bm.verts.ensure_lookup_table()
+                    
                     my_id = bm.verts.layers.float.get(name) or bm.verts.layers.float.new(name)
                     
                     for v in bm.verts:
@@ -406,25 +414,8 @@ class VertexGroup(PropertyGroup):
         
         return [ mesh_verts[i] for i in b_ids ]
 
-class dpDrawVertexGroupUI(UIList):
-    
-    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        row=layout.row()
-        row=row.split(.05)
-        row.prop(item,'export',icon=['RADIOBUT_OFF','RADIOBUT_ON'][item.export],text='',emboss=0)
-        row.prop(item,'name',text='',emboss=False)#,icon='ALIASED')
-        lenl=''
-        if item.vertices_len:
-            lenl='(%s)'%item.vertices_len
 
-        sub=row.split(.8,1)
-        sub.label(lenl)
-        sub.prop(item,'lock',icon=['UNLOCKED','LOCKED'][item.lock],text='')
-        #sub.prop(item,'export',icon=['RADIOBUT_OFF','RADIOBUT_ON'][item.export],text='')
-        sub.prop(item,'color',text='')
-    
-    def invoke(self, context, event):        
-        pass   
+
 
 class DpObjectHelper(PropertyGroup):
 
@@ -433,6 +424,7 @@ class DpObjectHelper(PropertyGroup):
     groups_weight = FloatProperty(min=0,max=1,default=1,name='Weight',precision=4)
     do_draw_groups = BoolProperty(default=True)
     to_mesh=BoolProperty()
+    sk_settings = PointerProperty(type = gt.ShapeKeySettings)
     
     join_group = StringProperty()
     merge_threshold = FloatProperty(
@@ -468,6 +460,7 @@ class DpObjectHelper(PropertyGroup):
             bpy.ops.object.mode_set(mode=mode)
             self.to_mesh=False
             bm.free()
+    
     def on_groups_remove(self,index):
         with self.bm(1) as bm:
             my_id = bm.verts.layers.float.get(self.groups[index].name)
@@ -611,6 +604,8 @@ def vg_UI_draw(self, context):
     ob.draw_groups(layout)
 
 
+
+
 register_classes = [
     IndicesStoreMenu,
     GroupsMenu,
@@ -633,8 +628,7 @@ register_classes = [
     VertexGroup,
     DpObjectHelper,
 
-    dpDrawVertexGroupUI,
-    
+
     
     ]
 
