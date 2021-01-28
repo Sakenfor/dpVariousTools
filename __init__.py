@@ -84,14 +84,14 @@ class GroupsFile(Operator):
         #return self.execute(context)
     
     def execute(self,context):
-    
+        
         ob=context.active_object
         obj=ob.dp_helper
         path = self.filepath
         if not path.endswith('.txt'):
             self.report({"WARNING"},"Path %s was not a .txt file, did not save!"%self.filepath)
             return {"FINISHED"}
-        
+        sign='='
         mode=ob.mode
         if mode !='OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
@@ -99,12 +99,12 @@ class GroupsFile(Operator):
             indices_save=[]
             with obj.bm() as bm:
                 bmv = bm.verts
-                bm.verts.ensure_lookup_table()
+                bmv.ensure_lookup_table()
                 for g in [ _ for _ in obj.groups if _.export ]:
                     
                     my_id = bmv.layers.float.get(g.name)# or bm.verts.layers.float.new(group_name)
                     if not my_id:continue
-                    indices_save.append('%s:%s'%(g.name,[v.index for v in bmv if v[my_id]>0]))
+                    indices_save.append('%s%s%s'%(g.name,sign,[v.index for v in bmv if v[my_id]>0]))
 
             if osp.exists(osp.dirname(path)) and indices_save:
                 with open(path,'w') as file:
@@ -121,8 +121,8 @@ class GroupsFile(Operator):
                 bm.verts.ensure_lookup_table()
                 for line in raw.split('\n'):
                     line=line.strip(' ')
-                    if ':' not in line or line.startswith('//'):continue
-                    name,indices = line.split(':')
+                    if sign not in line or line.startswith('//'):continue
+                    name,indices = line.split(sign)
                     name=name.strip('"')
                     indices = literal_eval(indices)
                     
@@ -469,7 +469,7 @@ class DpObjectHelper(PropertyGroup):
     
     @property
     def active_group(self):
-        return self.groups[self.groups_index] if self.groups_index <= len(self.groups)-1 else None
+        return self.groups[self.groups_index] if self.groups_index < len(s  elf.groups)-1 else None
         
     def draw_groups(self,layout):
         
