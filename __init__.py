@@ -440,8 +440,8 @@ class DpObjectHelper(PropertyGroup):
         mode=self.id_data.mode
         
         try:
-            
-            bpy.ops.object.mode_set(mode=m)
+            if mode!=m:
+                bpy.ops.object.mode_set(mode=m)
             if m == 'OBJECT':
                 bm = bmesh.new()
                 bm.from_mesh(self.id_data.data)
@@ -469,7 +469,7 @@ class DpObjectHelper(PropertyGroup):
     
     @property
     def active_group(self):
-        return self.groups[self.groups_index] if self.groups_index < len(s  elf.groups)-1 else None
+        return self.groups[self.groups_index] if self.groups_index < len(self.groups)-1 else None
         
     def draw_groups(self,layout):
         
