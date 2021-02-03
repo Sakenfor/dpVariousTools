@@ -29,6 +29,7 @@ from bpy.types import (
     Mesh,
     PropertyGroup,
     Menu,
+
     )
 
 from bpy.props import (
@@ -40,7 +41,9 @@ from bpy.props import (
     IntProperty,
     FloatProperty,
     FloatVectorProperty,
+    
     )
+from bmesh.types import BMesh
 
 class IndicesStoreMenu(Menu):
     bl_idname = "dp16.indices_store_menu"
@@ -70,7 +73,9 @@ class GroupsMenu(Menu):
         layout.label('Mesh:',icon='TRIA_DOWN')
         layout.operator('dp16.select_ngons',icon='FACESEL')
         layout.operator('dp16.geo_merge',icon='MESH_ICOSPHERE')
-        layout.operator('dp16.transfer_shapekey',icon='SHAPEKEY_DATA')
+        layout.label('Transfer:',icon='TRIA_DOWN')
+        layout.operator('dp16.transfer_shapekey',icon='SHAPEKEY_DATA',text='Shapes').transfer_type = 'Shape'
+        layout.operator('dp16.transfer_shapekey',icon='COPY_ID',text='Indices').transfer_type = 'ID'
         
 
 class GroupsFile(Operator):
@@ -204,6 +209,8 @@ class HelperNgonsSelect(Operator):
         
         return {"FINISHED"}
 
+
+
 class GroupsFileSave(GroupsFile):
     bl_idname = 'dp16.groups_file_save'
     bl_label = 'Save'
@@ -242,7 +249,23 @@ class GroupsManagement(Operator):
 
         context.active_object.dp_helper.operate_groups(self,self.action)
         return {"FINISHED"}
+
+class TransferOperator(Operator):
+    bl_idname = 'dp16.transfer_weights'
+    bl_label = 'Transfer'
+    bl_description = 'Transfer weights from source object on the left'
+    
+    def invoke(self,context,event):
+        self.event=event
+        return self.execute(context)
+    
+    def execute(self,context):
         
+        context.active_object.dp_helper.transfer_weight(operator=self)
+        return {"FINISHED"}
+
+
+
 class TagVertsPrintIndices(GroupsManagement):
     '''Print indices'''
     bl_label = "Indices"
@@ -413,8 +436,19 @@ class VertexGroup(PropertyGroup):
         mesh_verts = mesh.vertices
         
         return [ mesh_verts[i] for i in b_ids ]
+    
+    @property
+    def verts(self):
+        bm,my_id = self.id_data.dp_helper.bmesh_layer(self.name)
+        return [ v for v in bm.verts if v[my_id]>0]
+        #mesh_verts = mesh.vertices
 
 
+def mesh_poll(self,o):
+    return o.data and o.data.bl_rna.name == 'Mesh'
+
+
+BM_Track = {}
 
 
 class DpObjectHelper(PropertyGroup):
@@ -425,6 +459,51 @@ class DpObjectHelper(PropertyGroup):
     do_draw_groups = BoolProperty(default=True)
     to_mesh=BoolProperty()
     sk_settings = PointerProperty(type = gt.ShapeKeySettings)
+    wgt_source = PointerProperty(type = Object,
+        poll = mesh_poll,
+        name='Source',
+        description = 'Source of weight transfer',
+        )
+    wgt_selected = BoolProperty(
+        name = 'Selected',
+        description = '''Transfer weights only to selected vertices.
+NOTE: This check is done with "Group" option too, IF this is enabled!
+In short it is acumulative''',
+        )
+    wgt_group = StringProperty(
+        name = 'Group',
+        description = 'Group of vertices to use when transfering',
+        )
+    wgt_use_group = BoolProperty(
+        name = 'Limit to group',
+        description = 'Toggle on to choose and transfer ONLY to chosen group of vertices',
+        
+        )
+    wgt_topology = BoolProperty(name = 'Topo',
+        description = '''Modifier will have "Topology" method on.
+But IF number of vertices is not same, it will be skipped (a light check)'''        
+        )
+    
+    wgt_dis_arma = BoolProperty(
+        default = True,
+        description = '''Temporarily turn off armature modifiers on both objects when transfering weights'''
+        )
+    wgt_clean_after = BoolProperty(
+        default = True,
+        description = '''Remove unused vertex groups after the transfer
+NOTE: Useful to leave ON, if groups have .R,.L, and you want to mirror the mesh later''',
+        )
+    @property
+    def BM(self):
+        return BM_Track.get(self)
+        
+    @BM.setter
+    def BM(self,v):
+        BM_Track[self] = v
+    
+    @BM.deleter
+    def BM(self):
+        del BM_Track[self]
     
     join_group = StringProperty()
     merge_threshold = FloatProperty(
@@ -435,6 +514,137 @@ class DpObjectHelper(PropertyGroup):
         name='Threshold',
         )
     
+    def log(self,*args):
+        print(args)
+    
+    def wgt_transfer_draw(self,layout):
+        row=layout.row()
+        box=row.box()
+        row=box.row()
+        row=row.split(.14,1)
+        row.operator('dp16.transfer_weights',icon='PLAY')
+        #row.separator()
+        row=row.split(.5,1)
+        row.prop(self,'wgt_source',text='')
+        
+        row.split()
+        row.prop(self,'wgt_selected',text='Sel',icon='RESTRICT_SELECT_OFF')
+        row.prop(self,'wgt_topology',text='Topo',icon = 'RETOPO')
+        row.prop(self,'wgt_dis_arma',text='',icon='OUTLINER_DATA_ARMATURE')
+        row.prop(self,'wgt_clean_after',text='',icon='STICKY_UVS_DISABLE')
+        row=box.row(1)
+        row.prop(self,'wgt_use_group',icon='STICKY_UVS_DISABLE')
+        if self.wgt_use_group:
+            row.prop_search(self,'wgt_group',self,'groups',text='')
+    
+    def transfer_weight(self, src = None, operator = None):
+        if not src:
+            src = self.wgt_source
+        if not src:
+            return
+        if not src.data or src.data and src.data.bl_rna.name!='Mesh':
+            print("Source was not a mesh")
+            return
+            
+        ob = self.id_data
+        mname = 'QuickTransfer'
+        m = ob.modifiers.get(mname)
+        if not m:
+            m = ob.modifiers.new(mname, type='DATA_TRANSFER')
+        
+        while ob.modifiers.find(mname) != 0:
+            bpy.ops.object.modifier_move_up(modifier=mname)
+        m.use_vert_data = True
+        m.data_types_verts = {'VGROUP_WEIGHTS'}
+        #wgr = None
+        wgr = ob.vertex_groups.get('temp_transfer_group')
+        if not wgr:
+            wgr = ob.vertex_groups.new(name = 'temp_transfer_group')
+        mesh = ob.data
+        with self.bm() as bm:
+            '''
+            Enter bmesh mode if we are transfering selected vertices only,
+            so we can faster assign weights to selected vertices vertex group,
+            '''
+            sel_v_bk = [ v.index for v in mesh.vertices if v.select ]
+            bm.verts.layers.deform.verify()
+            bm.verts.ensure_lookup_table()
+            myv = bm.verts
+            srcv = len(src.data.vertices)
+            myv_len = len(myv)
+            
+            if self.wgt_topology and myv_len == srcv:
+                m.vert_mapping = 'TOPOLOGY'
+            else:
+                m.vert_mapping = 'POLYINTERP_NEAREST'
+            
+            
+            m.object = src
+            limit_group = self.groups.get(self.wgt_group)
+            valid_v = set(myv)
+
+            if self.wgt_use_group and limit_group:
+                
+                valid_v = set(limit_group.verts)
+                
+            if self.wgt_selected:
+                valid_v = { v for v in valid_v if v.select }
+
+            if not valid_v:
+                self.log("No valid vertices for transfer %s > %s, aborted"%(source.name,ob.name))
+                ob.modifiers.remove(m)
+                ob.vertex_groups.remove(wgr) 
+                return 
+                
+            if len(valid_v) != myv_len: 
+                self.to_mesh = 1 #Upon exit of with self.bm, data is updated, cos new vertex group data
+                
+                dl = bm.verts.layers.deform.active
+                for v in valid_v:
+                    v[dl][wgr.index] = 1
+                m.vertex_group = wgr.name
+        
+        preserve_options = {'armatures':not self.wgt_dis_arma}
+        with self.preserve(**preserve_options):
+            with src.dp_helper.preserve(**preserve_options):
+                bpy.ops.object.datalayout_transfer(modifier=mname)
+                bpy.ops.object.modifier_apply(apply_as='DATA',modifier=mname)
+        
+        
+        #Remove leftover 0.0 weights on vertices
+        if self.wgt_clean_after:
+            remove_empty_vg(ob)
+        bpy.context.scene.objects.active = ob
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.object.vertex_group_clean(group_select_mode='ALL',limit=0)
+        bpy.ops.mesh.select_all(action='DESELECT')
+        bpy.ops.object.mode_set(mode='OBJECT')
+        for i in sel_v_bk:
+            mesh.vertices[i].select = True
+
+        if wgr:
+            ob.vertex_groups.remove(wgr) 
+    
+    @contextmanager
+    def preserve(self,armatures=1):
+        '''
+            with obj.dp_helper.preserve():
+                do something
+        '''
+        ob = self.id_data
+        try:
+            
+            modif_state = {}
+            #if modifiers:
+            for m in ob.modifiers:
+                if m.type == 'ARMATURE' and not armatures:continue
+                modif_state[m] = m.show_viewport
+                m.show_viewport = False
+            yield
+        finally:
+            for k,v in modif_state.items():k.show_viewport = v
+            
     @contextmanager
     def bm(self,to_mesh=False,m='OBJECT'):
         mode=self.id_data.mode
@@ -447,19 +657,23 @@ class DpObjectHelper(PropertyGroup):
                 bm.from_mesh(self.id_data.data)
             else:
                 bm = bmesh.from_edit_mesh(self.id_data.data)
+            self.BM = bm
             bm.verts.ensure_lookup_table()
             yield bm
         
         finally:
-        
+            #print(to_mesh,self.to_mesh)
             if to_mesh or self.to_mesh:
-                try:
-                    bm.to_mesh(self.id_data.data)
-                except:
-                    pass
+                # try:
+                bm.to_mesh(self.id_data.data)
+                # except:
+                    # pass
             bpy.ops.object.mode_set(mode=mode)
             self.to_mesh=False
             bm.free()
+            del self.BM
+            #self.BM = None
+            
     
     def on_groups_remove(self,index):
         with self.bm(1) as bm:
@@ -469,7 +683,7 @@ class DpObjectHelper(PropertyGroup):
     
     @property
     def active_group(self):
-        return self.groups[self.groups_index] if self.groups_index < len(self.groups)-1 else None
+        return self.groups[self.groups_index] if self.groups_index <= len(self.groups)-1 else None
         
     def draw_groups(self,layout):
         
@@ -515,13 +729,17 @@ class DpObjectHelper(PropertyGroup):
     
     def bmesh_layer(self,group_name=None):
         
+        print(self.BM,group_name)
         if not group_name:
             group_name=self.active_group.name
-        if self.id_data.mode == 'EDIT':
-            bm = bmesh.from_edit_mesh(self.id_data.data)
+        if not self.BM: #Check if we are in "with self.bm"
+            if self.id_data.mode == 'EDIT':
+                bm = bmesh.from_edit_mesh(self.id_data.data)
+            else:
+                bm = bmesh.new()
+                bm.from_mesh(self.id_data.data)
         else:
-            bm = bmesh.new()
-            bm.from_mesh(self.id_data.data)
+            bm = self.BM
         bm.verts.ensure_lookup_table()
         my_id = bm.verts.layers.float.get(group_name) or bm.verts.layers.float.new(group_name)
         
@@ -545,11 +763,13 @@ class DpObjectHelper(PropertyGroup):
             if action == 'STORE':
                 for v in bm.verts:
                     v[layer_id] = v.index
-            else:
+            elif action == 'RESTORE':
                 for v in bm.verts:
                     v.index = v[layer_id]
                 bm.verts.sort()
-            
+            else:
+                print([v[layer_id] for v in bm.verts])
+                
     def clean_groups(self):
         with self.bm(1) as bm:
             while self.groups:
@@ -559,11 +779,12 @@ class DpObjectHelper(PropertyGroup):
                 self.groups.remove(0)
                 
     def operate_groups(self,operator,action='SELECT'):
-        
+
         if not self.active_group:return
         group=self.active_group
         group_name=group.name
         manip = action in {"ADD","SET","REMOVE"}
+
         with self.bm(m='EDIT' if not manip else 'OBJECT') as bm:
 
             my_id = bm.verts.layers.float.get(group_name) or bm.verts.layers.float.new(group_name)
@@ -596,6 +817,13 @@ class DpObjectHelper(PropertyGroup):
 def groups_menu_draw(self,context):
     self.layout.prop(context.active_object.dp_helper,'do_draw_groups',text='Draw helper groups',icon='ALIASED')
 
+def modif_draw(self,context):
+    ob = context.active_object
+    if not ob.data:return
+    if ob.data.bl_rna.name != 'Mesh':return
+    ob.dp_helper.wgt_transfer_draw(self.layout)
+
+
 def vg_UI_draw(self, context):
     layout = self.layout
 
@@ -607,6 +835,7 @@ def vg_UI_draw(self, context):
 
 
 register_classes = [
+    TransferOperator,
     IndicesStoreMenu,
     GroupsMenu,
     
@@ -649,7 +878,7 @@ def register():
     bpy.types.VIEW3D_MT_object_specials.append(gt.specials_draw)
     bpy.types.DATA_PT_vertex_groups.append(vg_UI_draw)
     bpy.types.MESH_MT_vertex_group_specials.append(groups_menu_draw)
-    
+    bpy.types.DATA_PT_modifiers.prepend(modif_draw)
 
 
 def unregister():
@@ -661,7 +890,8 @@ def unregister():
     bpy.types.VIEW3D_MT_object_specials.remove(gt.specials_draw)
     bpy.types.DATA_PT_vertex_groups.remove(vg_UI_draw)
     bpy.types.MESH_MT_vertex_group_specials.remove(groups_menu_draw)
-
+    bpy.types.DATA_PT_modifiers.remove(modif_draw)
+    
     for cls in register_classes:
         unregister_class(cls)
 

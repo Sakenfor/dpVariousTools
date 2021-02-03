@@ -5,16 +5,33 @@ PropertyGroup,
 UIList,
 Object,
 )
+
 from bpy.props import (
 StringProperty,
 BoolProperty,
 IntProperty,
 CollectionProperty,
 PointerProperty,
+EnumProperty,
 )
 
 from bpy import utils as butils
 import bpy
+
+def remove_empty_vg(ob):
+
+    ob.update_from_editmode()
+    
+    vgroup_used = {i: False for i, k in enumerate(ob.vertex_groups)}
+    
+    for v in ob.data.vertices:
+        for g in v.groups:
+            if g.weight > 0.0:
+                vgroup_used[g.group] = True
+    
+    for i, used in sorted(vgroup_used.items(), reverse=True):
+        if not used:
+            ob.vertex_groups.remove(ob.vertex_groups[i])
 
 def copy_obj(scene,obj):
     o=obj.copy()
@@ -40,6 +57,7 @@ def template_list_control(row,crange,group,member,align=1,col=None):
 
 
 class generic_list_adder(Operator):
+
     bl_idname = "dp16.generic_list_add"
     bl_label = "Generic List Controller"
     bl_description = "Add, remove or move items in the list on the left side.\nHold Ctrl when adding to prompt naming window.\nHold Ctrl when removing to not prompt confirm."
@@ -258,6 +276,7 @@ class TransferChoiceGroup(PropertyGroup):
         return self.mesh.name
     
     def refresh_keys(self):
+        
         kb = self.mesh.shape_keys.key_blocks
         for k in list(kb)[1:]:
             k2 = self.choices.get(k.name)
@@ -271,7 +290,10 @@ class TransferChoiceGroup(PropertyGroup):
     @property
     def transferable(self):
         return [ k for k in self.choices if k.transfer ]
-    
+
+
+
+
 class ShapeKeySettings(PropertyGroup):
     ssettings = CollectionProperty(type = TransferChoiceGroup)
     last_transfer = PointerProperty(type = Mesh)
@@ -293,8 +315,10 @@ class ShapeKeySettings(PropertyGroup):
         s = self.get_shape_settings(source.data)
         s.refresh_keys()
     
-    def transfer(self,target,operator = None):
+
+    def transfer(self, target, operator = None, transfer_type='Shape'):
         context = bpy.context
+        
         s = self.get_shape_settings(target)
         obj = self.id_data.dp_helper
         ob = self.id_data
@@ -302,46 +326,80 @@ class ShapeKeySettings(PropertyGroup):
         source = context.selected_objects[:]
         source.remove(ob)
         
-        if not me.shape_keys:
-            ob.shape_key_add("Basis")
-            
-        kb = me.shape_keys.key_blocks
-
+        if operator:
+            transfer_type = operator.transfer_type
         #with obj.bm(1) as bm:
-        for sk in s.transferable:
-            key = kb.get(sk.name)
-            if not key:
-                key = ob.shape_key_add(sk.name)
-        me.update()
+        if transfer_type == 'Shape':
+            if not me.shape_keys:
+                ob.shape_key_add("Basis")
+            kb = me.shape_keys.key_blocks
+            for sk in s.transferable:
+                key = kb.get(sk.name)
+                if not key:
+                    key = ob.shape_key_add(sk.name)
+            me.update()
         source_ob = source[0].dp_helper
-        #mapped = [ob.
-
-            
+        #print(operator,transfer_type)
+        
         with obj.bm(1) as bm:
             indices_id = bm.verts.layers.int.get("indices_save")
-            #if not indices_id:
-                
+            if transfer_type == 'ID' and not indices_id:
+                indices_id = bm.verts.layers.int.new('indices_save')
             
             with source_ob.bm() as sbm:
                 source_verts = sbm.verts
-                
                 indices_id2 = sbm.verts.layers.int.get("indices_save")
                 if not indices_id2 or not indices_id :
-                    operator.report({"ERROR"},"Store indices first, something went wrong")
+                    operator.report({"ERROR"},"Store indices first in source AND target")
                     return
-                mapped_source = {v[indices_id2]:v for v in source_verts} 
                 
-                for k in s.transferable:
-                    source_shape_lay = sbm.verts.layers.shape.get(k.name)
-                    target_lay = bm.verts.layers.shape.get(k.name)
-                    #source_v = {
-                    for v in bm.verts:
-                        if mapped_source.get(v[indices_id]):
-                            v[target_lay] = mapped_source[v[indices_id]][source_shape_lay]
+                if transfer_type == 'ID':
+                    from mathutils import kdtree
+                    size = len(source_verts)
+                    kd = kdtree.KDTree(size)
+                    for i,v in enumerate(source_verts):
+                        kd.insert(v.co, i)
+                    kd.balance()
+                    for i,v in enumerate(bm.verts):
+                        if not v.select:continue
+                        closest = kd.find_n(v.co,2)
+                        #print(closest)
+                        v[indices_id] = source_verts[closest[1][1]][indices_id2]
+                        
+
+                elif transfer_type == 'Shape':
+                    mapped_source = { v[indices_id2]:v for v in source_verts } 
+                    
+                    for k in s.transferable:
+                        source_shape_lay = sbm.verts.layers.shape.get(k.name)
+                        target_lay = bm.verts.layers.shape.get(k.name)
+                        #source_v = {
+                        for v in bm.verts:
+                            if mapped_source.get(v[indices_id]):
+                                v[target_lay] = mapped_source[v[indices_id]][source_shape_lay]
 
         me.update()
 
-        
+# create a kd-tree from a mesh
+# me = ob.data
+# size = len(me.vertices)
+# kd = mathutils.kdtree.KDTree(size)
+# for i, v in enumerate(me.vertices):
+    # kd.insert(v.co, i)
+# kd.balance()
+
+'''create ordered list of closest vertex indices'''
+# closest_vIdx = []
+# for v in me.vertices:
+    # co_find = v.co
+    # closest_2 = kd.find_n(co_find,2)
+    # closest_vIdx.append(closest_2[1][1])
+
+'''Insert the index of the queried vertex here:'''
+# vIdx = 5707
+
+# print (f"vertex:{vIdx} closest vertex:{closest_vIdx[vIdx]}")
+
 class TransferShapeKeyUI(UIList):
     
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
@@ -356,12 +414,13 @@ class TransferShapekey(Operator):
     bl_idname = "dp16.transfer_shapekey"
     bl_label="Transfer ShapeKey"
     bl_options= {'REGISTER','UNDO'}
+    transfer_type = EnumProperty(items=[(a,a,a) for a in ['Shape','ID']])
     
     def invoke(self,context,event):
         source = context.selected_objects[:]
         if len(source)!=2:return {"FINISHED"}
         source.remove(context.active_object)
-        
+        if self.transfer_type == 'ID' :return self.execute(context)
         context.active_object.dp_helper.sk_settings.refresh(source[0])
         
         return context.window_manager.invoke_props_dialog(self)
