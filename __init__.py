@@ -729,7 +729,7 @@ NOTE: Useful to leave ON, if groups have .R,.L, and you want to mirror the mesh 
     
     def bmesh_layer(self,group_name=None):
         
-        print(self.BM,group_name)
+        #print(self.BM,group_name)
         if not group_name:
             group_name=self.active_group.name
         if not self.BM: #Check if we are in "with self.bm"
