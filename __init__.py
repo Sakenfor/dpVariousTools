@@ -591,7 +591,7 @@ NOTE: Useful to leave ON, if groups have .R,.L, and you want to mirror the mesh 
                 valid_v = { v for v in valid_v if v.select }
 
             if not valid_v:
-                self.log("No valid vertices for transfer %s > %s, aborted"%(source.name,ob.name))
+                self.log("No valid vertices for transfer %s > %s, aborted"%(src.name,ob.name))
                 ob.modifiers.remove(m)
                 ob.vertex_groups.remove(wgr) 
                 return 
