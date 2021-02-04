@@ -671,7 +671,7 @@ NOTE: Useful to leave ON, if groups have .R,.L, and you want to mirror the mesh 
                     self.id_data.data.update()
             bpy.ops.object.mode_set(mode=mode)
             self.to_mesh=False
-            bm.free()
+            #bm.free()
             del self.BM
             #self.BM = None
             
