@@ -613,7 +613,7 @@ NOTE: Useful to leave ON, if groups have .R,.L, and you want to mirror the mesh 
         
         #Remove leftover 0.0 weights on vertices
         if self.wgt_clean_after:
-            remove_empty_vg(ob)
+            gt.remove_empty_vg(ob)
         bpy.context.scene.objects.active = ob
         bpy.ops.object.mode_set(mode='EDIT')
         bpy.ops.mesh.select_all(action='SELECT')
@@ -755,7 +755,8 @@ NOTE: Useful to leave ON, if groups have .R,.L, and you want to mirror the mesh 
         for v in bverts:
             v.select = select
         bm.select_flush_mode()   
-        self.id_data.data.update()
+        if not self.to_mesh:
+            self.id_data.data.update()
     
     def do_indices_storage(self,action):
         with self.bm(1) as bm:
@@ -797,7 +798,7 @@ NOTE: Useful to leave ON, if groups have .R,.L, and you want to mirror the mesh 
 
             elif action in {"SELECT","DESELECT"}:
                 self.select_group(bm,my_id,action == "SELECT")
-
+                self.to_mesh=True
             else:
                 
                 self.to_mesh=True # on exit of context, will put bmesh to mesh
