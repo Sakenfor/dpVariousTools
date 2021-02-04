@@ -664,10 +664,11 @@ NOTE: Useful to leave ON, if groups have .R,.L, and you want to mirror the mesh 
         finally:
             #print(to_mesh,self.to_mesh)
             if to_mesh or self.to_mesh:
-                # try:
-                bm.to_mesh(self.id_data.data)
-                # except:
-                    # pass
+                if bm.is_wrapped:
+                    bmesh.update_edit_mesh(self.id_data.data, False, False)
+                else:
+                    bm.to_mesh(self.id_data.data)
+                    self.id_data.data.update()
             bpy.ops.object.mode_set(mode=mode)
             self.to_mesh=False
             bm.free()

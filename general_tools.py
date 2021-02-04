@@ -71,7 +71,11 @@ class generic_list_adder(Operator):
     def execute(self,context):
     
         scene=context.scene
-        group=eval('scene.%s'%self.group)
+        #print(self.group)
+        if 'scene' not in self.group and 'bpy.data' not in self.group:
+            group=eval('scene.%s'%self.group)
+        else:
+            group = eval(self.group)
         collection=getattr(group,self.member)
         index='%s_index'%self.member
         sel_id=getattr(group,index)
